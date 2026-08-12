@@ -26,7 +26,7 @@ def main():
 
     base_url = constants.TESTNET_API_URL if is_testnet else constants.MAINNET_API_URL
     print(f"Connecting to: {base_url}")
-    print(f"Account: {account_address}")
+    print(f"Account length: {len(account_address)} | starts: {account_address[:6]} | ends: {account_address[-6:]}")
 
     wallet = Account.from_key(priv_key)
     info = Info(base_url, skip_ws=True)
