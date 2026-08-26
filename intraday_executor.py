@@ -287,8 +287,8 @@ def main():
         leverage = 2.0  # Fixed 2x for intraday; more conservative than daily
         result = execute_trade(info, exchange, trade, capital, leverage)
         results.append(result)
-        print(f"  {result['ticker']} {result['action']}: {result.get('status')}")
-
+        print(f"  {result['ticker']} {result['action']}: {result.get('status')} | {result.get('error', '')}")
+        
         if result.get("status") == "filled":
             coin = result["hl_coin"]
             if result["action"] == "close":
