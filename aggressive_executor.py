@@ -41,7 +41,7 @@ from backtester import get_asset_profile
 
 
 STATE_FILENAME = "aggressive_state.json"
-POSITION_SIZE_PCT = 0.015  # 1.5% per trade — higher than standard intraday
+POSITION_SIZE_PCT = 0.025  # 1.5% per trade — higher than standard intraday
 PYRAMID_SIZE_PCT = 0.005   # 0.5% extra per pyramid add (max 2 adds)
 
 
