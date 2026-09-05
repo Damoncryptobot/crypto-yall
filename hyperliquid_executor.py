@@ -63,7 +63,7 @@ ASSETS = {
 }
 
 STATE_FILENAME = "trading_state.json"
-POSITION_SIZE_PCT = 0.01  # 1% of segregated capital per trade
+POSITION_SIZE_PCT = 0.02  # 1% of segregated capital per trade
 
 
 # ── State Persistence (GitHub Gist) ─────────────────────────────────────────
