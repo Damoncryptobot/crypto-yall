@@ -41,7 +41,7 @@ from backtester import get_asset_profile
 
 
 STATE_FILENAME = "intraday_state.json"
-POSITION_SIZE_PCT = 0.01
+POSITION_SIZE_PCT = 0.02
 
 
 # ── State persistence (separate Gist from daily bot) ────────────────────────
