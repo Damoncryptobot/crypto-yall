@@ -184,6 +184,9 @@ def execute_trade(info, exchange, trade: dict, capital: float, leverage: float) 
 
     mid = get_mid_price(info, coin)
     notional = capital * POSITION_SIZE_PCT * leverage
+    MIN_TRADE_USD = 15  # skip trades smaller than this
+    if notional < MIN_TRADE_USD:
+        return {**trade, "status": "skipped", "reason": f"Below minimum trade size (${notional:.2f} < ${MIN_TRADE_USD})"}
     raw_size = notional / mid
     sz_decimals = get_size_decimals(info, coin)
     size = round_size(raw_size, sz_decimals)
