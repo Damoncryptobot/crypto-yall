@@ -273,7 +273,7 @@ def compute_stops(managed_positions: dict, state: dict, trail_pct: float):
             stops[coin] = "long" if pos["size"] > 0 else "short"
     return stops, new
 
-STOP_DRY_RUN = True  # True = only log stops, don't close. Set False to go live.
+STOP_DRY_RUN = False  # True = only log stops, don't close. Set False to go live.
 
 
 def signal_direction(action: str):
