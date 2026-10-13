@@ -273,6 +273,17 @@ def compute_stops(managed_positions: dict, state: dict, trail_pct: float):
             stops[coin] = "long" if pos["size"] > 0 else "short"
     return stops, new
 
+STOP_DRY_RUN = True  # True = only log stops, don't close. Set False to go live.
+
+
+def signal_direction(action: str):
+    """Collapse a signal action to 'long', 'short' or None."""
+    if action in ("buy", "hold_long"):
+        return "long"
+    if action in ("enter_short", "hold_short"):
+        return "short"
+    return None
+
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
@@ -296,17 +307,17 @@ def main():
     halted, state_update = check_daily_drawdown(state, equity, threshold)
     state.update(state_update)
 
+    # CHANGED: a drawdown halt is now close-only instead of exiting
+    today = dt.date.today().isoformat()
+    close_only = False
     if halted:
-        msg = f"Aggressive halted: {state_update.get('halt_reason')}"
+        msg = f"Aggressive halted (close-only): {state_update.get('halt_reason')}"
         print(msg)
         _send_email([], msg)
-        save_state(state)
-        sys.exit(0)
-
-    today = dt.date.today().isoformat()
-    if state.get("halted_today") == today:
-        print(f"Already halted today: {state.get('halt_reason')}")
-        sys.exit(0)
+        close_only = True
+    elif state.get("halted_today") == today:
+        print(f"Already halted today (close-only): {state.get('halt_reason')}")
+        close_only = True
 
     signals = compute_aggressive_signals()
     open_positions = get_open_positions(info, address)
@@ -332,7 +343,51 @@ def main():
     # Per-coin pyramid state (persisted across runs)
     pyramid_state = state.get("pyramid_state", {})
 
-    trades = decide_trades(signals, managed_positions, max_positions, pyramid_state)
+    # NEW: trailing stop check
+    stops, new_peaks = compute_stops(managed_positions, state, TRAIL_PCT)
+    state["peak_move"] = new_peaks
+    peak_view = {c: round(v["peak"], 1) for c, v in new_peaks.items()}
+    print(f"Trailing peaks (% price move): {peak_view}")
+    if stops:
+        note = " (dry run, no action)" if STOP_DRY_RUN else ""
+        print(f"Trailing stop hit: {sorted(stops)}{note}")
+    if STOP_DRY_RUN:
+        stops = {}
+
+    # NEW: coins stopped out earlier stay blocked until their signal direction changes
+    stopped = state.get("stopped", {})
+    for ticker, sig in signals.items():
+        coin = HL_SYMBOL_MAP[ticker]
+        if coin in stopped and signal_direction(sig["action"]) != stopped[coin]:
+            stopped.pop(coin)
+
+    # NEW: hide stopped and blocked coins from decide_trades so they don't reopen
+    blocked = set(stopped) | set(stops)
+    decide_signals = {t: s for t, s in signals.items() if HL_SYMBOL_MAP[t] not in blocked}
+    decide_positions = {c: p for c, p in managed_positions.items() if c not in stops}
+
+    trades = decide_trades(decide_signals, decide_positions, max_positions, pyramid_state)
+
+    # NEW: turn stop-outs into normal close trades
+    coin_to_ticker = {v: k for k, v in HL_SYMBOL_MAP.items()}
+    stop_trades = []
+    for coin, side in stops.items():
+        ticker = coin_to_ticker.get(coin)
+        if ticker is None:
+            continue
+        sig = signals.get(ticker)
+        stop_trades.append({
+            "ticker": ticker, "hl_coin": coin,
+            "action": "close", "side": side,
+            "reason": f"trailing stop ({TRAIL_PCT:.0f}% from peak)",
+            "stop_dir": signal_direction(sig["action"]) if sig else None,
+        })
+    trades = stop_trades + trades
+
+    # NEW: during a halt, allow closes only
+    if close_only:
+        trades = [t for t in trades if t["action"] == "close"]
+
     print(f"Decided on {len(trades)} aggressive trade(s) (own {len(owned_coins)} position(s))")
 
     results = []
@@ -348,6 +403,9 @@ def main():
             if result["action"] == "close":
                 owned_coins.discard(coin)
                 pyramid_state.pop(coin, None)
+                new_peaks.pop(coin, None)  # NEW
+                if result.get("stop_dir"):  # NEW
+                    stopped[coin] = result["stop_dir"]
             elif result["action"].startswith("pyramid_"):
                 pyramid_state[coin] = pyramid_state.get(coin, 0) + 1
             else:
@@ -365,6 +423,7 @@ def main():
     state["last_run"] = dt.datetime.now(dt.UTC).isoformat()
     state["owned_coins"] = sorted(owned_coins)
     state["pyramid_state"] = pyramid_state
+    state["stopped"] = stopped  # NEW
     latest = get_open_positions(info, address)
     state["open_positions"] = {c: p for c, p in latest.items() if c in owned_coins}
     state["last_signals"] = signals
