@@ -250,6 +250,29 @@ def check_daily_drawdown(state: dict, equity: float, threshold: float) -> tuple[
         return True, update
     return False, update
 
+TRAIL_PCT = 10.0  # close when price move falls this many points below its best
+
+def compute_stops(managed_positions: dict, state: dict, trail_pct: float):
+    """Return (stops, new_peaks). stops = {coin: side} to close now."""
+    old = state.get("peak_move", {})
+    new = {}
+    stops = {}
+    for coin, pos in managed_positions.items():
+        entry = pos["entry_px"]
+        notional = abs(pos["size"]) * entry
+        if notional <= 0:
+            continue
+        move = pos["unrealized_pnl"] / notional * 100  # % price move in our favour
+        prev = old.get(coin)
+        if prev and abs(entry - prev["entry"]) / prev["entry"] < 0.001:
+            peak = max(prev["peak"], move)
+        else:
+            peak = max(move, 0.0)  # new position, or entry changed (pyramid add)
+        new[coin] = {"peak": peak, "entry": entry}
+        if move <= peak - trail_pct:
+            stops[coin] = "long" if pos["size"] > 0 else "short"
+    return stops, new
+
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
