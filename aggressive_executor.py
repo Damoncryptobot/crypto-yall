@@ -47,10 +47,12 @@ PYRAMID_SIZE_PCT = 0.005   # 0.5% extra per pyramid add (max 2 adds)
 
 # ── State persistence (separate Gist) ───────────────────────────────────────
 
+
 def load_state() -> dict:
     gist_token = os.environ.get("GIST_TOKEN")
     gist_id = os.environ.get("AGGRESSIVE_GIST_ID")
     if not gist_token or not gist_id:
+        print("STATE: GIST_TOKEN or AGGRESSIVE_GIST_ID is missing")
         return {}
     resp = requests.get(
         f"https://api.github.com/gists/{gist_id}",
@@ -58,13 +60,18 @@ def load_state() -> dict:
         timeout=15,
     )
     if resp.status_code != 200:
+        print(f"STATE load failed: HTTP {resp.status_code} {resp.text[:200]}")
         return {}
     files = resp.json().get("files", {})
     if STATE_FILENAME not in files:
+        print(f"STATE load: '{STATE_FILENAME}' not found, gist has {list(files)}")
         return {}
     try:
-        return json.loads(files[STATE_FILENAME]["content"])
-    except Exception:
+        data = json.loads(files[STATE_FILENAME]["content"])
+        print(f"STATE loaded: {len(data)} keys")
+        return data
+    except Exception as e:
+        print(f"STATE load parse error: {e}")
         return {}
 
 
@@ -72,13 +79,18 @@ def save_state(state: dict):
     gist_token = os.environ.get("GIST_TOKEN")
     gist_id = os.environ.get("AGGRESSIVE_GIST_ID")
     if not gist_token or not gist_id:
+        print("STATE: cannot save, GIST_TOKEN or AGGRESSIVE_GIST_ID is missing")
         return
-    requests.patch(
+    resp = requests.patch(
         f"https://api.github.com/gists/{gist_id}",
         headers={"Authorization": f"token {gist_token}"},
         json={"files": {STATE_FILENAME: {"content": json.dumps(state, indent=2)}}},
         timeout=15,
     )
+    if resp.status_code == 200:
+        print("STATE saved")
+    else:
+        print(f"STATE save failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
 # ── Signal computation ─────────────────────────────────────────────────────
