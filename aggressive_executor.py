@@ -252,7 +252,7 @@ def check_daily_drawdown(state: dict, equity: float, threshold: float) -> tuple[
     key = f"day_start_{today}"
     start = state.get(key)
     update = {}
-    if start is None:
+    if not start:
         update[key] = equity
         return False, update
     dd = (equity - start) / start * 100 if start > 0 else 0
@@ -296,6 +296,27 @@ def signal_direction(action: str):
         return "short"
     return None
 
+def get_total_equity(info, address: str) -> float:
+    """Perps account value; when flat, fall back to spot USDC (Unified Account)."""
+    perp = get_account_equity(info, address)
+    try:
+        state = info.user_state(address)
+        has_positions = any(
+            float(p["position"]["szi"]) != 0 for p in state.get("assetPositions", [])
+        )
+        if has_positions:
+            return perp
+        spot = info.spot_user_state(address)
+        usdc = sum(
+            float(b["total"]) for b in spot.get("balances", []) if b.get("coin") == "USDC"
+        )
+        total = max(perp, usdc)
+        print(f"Equity check (flat): perps={perp:.2f} spot_usdc={usdc:.2f} -> {total:.2f}")
+        return total
+    except Exception as e:
+        print(f"Equity fallback failed: {e}")
+        return perp
+
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
@@ -314,7 +335,7 @@ def main():
         sys.exit(1)
 
     state = load_state()
-    equity = get_account_equity(info, address)
+    equity = get_total_equity(info, address)
     threshold = float(os.environ.get("AGGRESSIVE_DD_PCT", "3"))
     halted, state_update = check_daily_drawdown(state, equity, threshold)
     state.update(state_update)
