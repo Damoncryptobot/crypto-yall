@@ -264,17 +264,35 @@ def check_daily_drawdown(state: dict, equity: float, threshold: float) -> tuple[
 
 TRAIL_PCT = 10.0  # close when price move falls this many points below its best
 
-def compute_stops(managed_positions: dict, state: dict, trail_pct: float):
-    """Return (stops, new_peaks). stops = {coin: side} to close now."""
+def get_margins(info, address: str) -> dict:
+    """Return {coin: margin used} per open position (for margin-based stops)."""
+    try:
+        state = info.user_state(address)
+        out = {}
+        for p in state.get("assetPositions", []):
+            pos = p["position"]
+            if float(pos["szi"]) != 0:
+                out[pos["coin"]] = float(pos["marginUsed"])
+        return out
+    except Exception as e:
+        print(f"Margin lookup failed: {e}")
+        return {}
+        
+def compute_stops(managed_positions: dict, state: dict, trail_pct: float, margins: dict = None):
+    """Return (stops, new_peaks). stops = {coin: side} to close now.
+    Gains are measured as % of margin used (same basis as Hyperliquid's ROE)."""
     old = state.get("peak_move", {})
     new = {}
     stops = {}
+    margins = margins or {}
     for coin, pos in managed_positions.items():
         entry = pos["entry_px"]
-        notional = abs(pos["size"]) * entry
-        if notional <= 0:
+        base = margins.get(coin) or 0.0
+        if base <= 0:
+            base = abs(pos["size"]) * entry  # fall back to position value
+        if base <= 0:
             continue
-        move = pos["unrealized_pnl"] / notional * 100  # % price move in our favour
+        move = pos["unrealized_pnl"] / base * 100  # % of margin
         prev = old.get(coin)
         if prev and abs(entry - prev["entry"]) / prev["entry"] < 0.001:
             peak = max(prev["peak"], move)
@@ -377,7 +395,7 @@ def main():
     pyramid_state = state.get("pyramid_state", {})
 
     # NEW: trailing stop check
-    stops, new_peaks = compute_stops(managed_positions, state, TRAIL_PCT)
+    stops, new_peaks = compute_stops(managed_positions, state, TRAIL_PCT, get_margins(info, address))
     state["peak_move"] = new_peaks
     peak_view = {c: round(v["peak"], 1) for c, v in new_peaks.items()}
     print(f"Trailing peaks (% price move): {peak_view}")
